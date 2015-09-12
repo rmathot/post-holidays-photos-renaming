@@ -21,7 +21,7 @@ def main(args):
         img.close()
         
         converted_time = datetime.datetime.strptime(raw_time, '%Y:%m:%d %H:%M:%S')
-        newname = str(converted_time) + '.jpg'
+        newname = str(converted_time).replace(':', '.') + '.jpg'
 
         os.rename(os.path.join(folderpath, pic), os.path.join(folderpath, newname))
 
