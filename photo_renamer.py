@@ -1,42 +1,103 @@
 #!/bin/env python3
-# -*- coding: utf-8 -*-
 
-import datetime
+from argparse import ArgumentParser
+from datetime import datetime
 import os
-import PIL.Image
-import PIL.ExifTags
+from os import scandir
+from os.path import join as path_join
 import sys
 
+import PIL
+from PIL import Image
+from PIL import ExifTags
 
-def main(args):
-    folderpath = os.path.abspath(args[0])
-    print("Working with directory: %s" % folderpath)
-    try:
-        timezone_offset = int(args[1])
-    except IndexError:
-        timezone_offset = 0
-    except ValueError:
-        timezone_offset = 0
 
-    pictures = [f for f in os.listdir(folderpath) if f.endswith('.JPG')]
-    pictures.sort()
+def _rename(config):
+    folderpath = os.path.abspath(config.directory)
+    print(f"Scanning directory {folderpath}...")
+
+    pictures = [f for f in scandir(folderpath) if f.name.lower().endswith(".jpg") or f.name.lower().endswith(".jpeg")]
+    pictures.sort(key=lambda x: x.name)
+    print(f"{len(pictures)} pictures found.")
+
+    if config.apply:
+        print("Renaming files...")
+    else:
+        print("Simulating the files renaming...")
 
     for pic in pictures:
-        img = PIL.Image.open(os.path.join(folderpath, pic))
-        raw_time = img._getexif()[306]
-        img.close()
 
-        converted_time = datetime.datetime.strptime(raw_time, '%Y:%m:%d %H:%M:%S')
-        if timezone_offset:
-            print("Offsetting original time by %d hours" % timezone_offset)
-            converted_time = converted_time + datetime.timedelta(hours=timezone_offset)
-        newname = str(converted_time).replace(':', '.') + '.jpg'
+        # list candidate values from EXIF tags, depending on availability
+        candidates = dict()
+        with Image.open(pic.path) as img:
+            exif = img.getexif()
 
-        os.rename(os.path.join(folderpath, pic), os.path.join(folderpath, newname))
+            candidates["base_date_time"] = exif.get(ExifTags.Base.DateTime)
+            candidates["original_date_time"] = exif.get_ifd(ExifTags.IFD.Exif).get(ExifTags.Base.DateTimeOriginal)
+            candidates["digitized_date_time"] = exif.get_ifd(ExifTags.IFD.Exif).get(ExifTags.Base.DateTimeDigitized)
+            candidates["gps_date"] = exif.get_ifd(ExifTags.IFD.GPSInfo).get(ExifTags.GPS.GPSDateStamp)
+            if candidates["gps_date"]:
+                if candidates["gps_date"].startswith("1970"):
+                    candidates["gps_date"] = None  # we don't need epoch
+                else:
+                    candidates["gps_date"] += " 00:00:00"  # gps date does not have time info
 
-        print('%s -> %s' % (pic, newname))
+            if config.verbose:
+                print(f"DEBUG: Here is what we learnt about {pic.name}: {candidates}")
+
+        # try candidates from most to less accurate
+        if candidates["base_date_time"]:
+            use_this_date = candidates["base_date_time"]
+        elif candidates["original_date_time"]:
+            use_this_date = candidates["original_date_time"]
+        elif candidates["digitized_date_time"]:
+            use_this_date = candidates["digitized_date_time"]
+        elif candidates["gps_date"]:
+            use_this_date = candidates["gps_date"]
+        else:
+            print(f"{pic.name} -> no EXIF date information found, ignoring it.")
+            continue
+
+        timestamp = datetime.strptime(use_this_date, "%Y:%m:%d %H:%M:%S")
+        #     if timezone_offset:
+        #         print("Offsetting original time by %d hours" % timezone_offset)
+        #         converted_time = converted_time + datetime.timedelta(hours=timezone_offset)
+        newname = str(timestamp).replace(":", ".") + ".jpg"
+
+        if config.apply:
+            os.rename(pic.path, path_join(folderpath, newname))
+
+        print(f"{pic.name} -> {newname}")
+
+
+def main():
+    parser = ArgumentParser(
+        description="Renames photos based on EXIF datetime information",
+    )
+    parser.add_argument(
+        "directory",
+        type=str,
+        help="Path to the folder containing the photos to rename",
+    )
+    parser.add_argument(
+        "-a",
+        "--apply",
+        action="store_true",
+        help="Actually rename the files. If this option is not enabled, the script will only print the new file names.",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+    )
+    # parser.add_argument(
+    #     "-o",
+    #     "--offset",
+    #     type=str,
+    # )
+    config = parser.parse_args(sys.argv[1:])
+    _rename(config)
 
 
 if __name__ == "__main__":
-    args = sys.argv[1:]
-    main(args)
+    main()
