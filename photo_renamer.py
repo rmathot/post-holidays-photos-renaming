@@ -106,6 +106,7 @@ def main():
         help="timedelta specificator to apply",
     )
     # TODO function to write back the Exif tag after offset fix
+    # TODO function to force manually the date/time of the file if nothing can be found or offsetted
     config = parser.parse_args(sys.argv[1:])
     _rename(config)
 
