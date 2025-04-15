@@ -2,6 +2,7 @@
 
 from argparse import ArgumentParser
 from datetime import datetime
+from datetime import timedelta
 import os
 from os import scandir
 from os.path import join as path_join
@@ -59,10 +60,18 @@ def _rename(config):
             continue
 
         timestamp = datetime.strptime(use_this_date, "%Y:%m:%d %H:%M:%S")
-        #     if timezone_offset:
-        #         print("Offsetting original time by %d hours" % timezone_offset)
-        #         converted_time = converted_time + datetime.timedelta(hours=timezone_offset)
-        newname = str(timestamp).replace(":", ".") + ".jpg"
+        if config.offset:
+            # this ugly line unpacks a string like: years=1,months=2,days=3,hours=4,minutes=5,seconds=6 ...
+            delta_parameters = {s.split("=")[0]: int(s.split("=")[1]) for s in config.offset.split(",")}
+            # ...and build a timedelta object from it
+            delta = timedelta(**delta_parameters)
+
+            if config.verbose:
+                print(f"DEBUG: Offsetting original date & time by {delta} hours")
+
+            timestamp = timestamp + delta
+
+        newname = timestamp.strftime("%Y-%m-%d %H.%M.%S.jpg")
 
         if config.apply:
             os.rename(pic.path, path_join(folderpath, newname))
@@ -90,11 +99,13 @@ def main():
         "--verbose",
         action="store_true",
     )
-    # parser.add_argument(
-    #     "-o",
-    #     "--offset",
-    #     type=str,
-    # )
+    parser.add_argument(
+        "-o",
+        "--offset",
+        type=str,
+        help="timedelta specificator to apply",
+    )
+    # TODO function to write back the Exif tag after offset fix
     config = parser.parse_args(sys.argv[1:])
     _rename(config)
 
